@@ -1,0 +1,4 @@
+qrcode[pil]
+Pillow
+python-dotenv
+Flask
