@@ -9,6 +9,7 @@ from pathlib import Path
 
 import qrcode
 from dotenv import load_dotenv
+from jinja2 import Template
 
 
 @dataclass
@@ -59,7 +60,7 @@ def make_qr(contact: Contact, output_dir: Path):
     return output_file
 
 
-def build_message(contact: Contact, qr_path: Path, from_address: str, subject: str, body_template: str):
+def build_message(contact: Contact, qr_path: Path, from_address: str, subject: str, body_template: str, html_body_template: str = None):
     body = body_template.format(fullname=contact.fullname, email=contact.email, phone=contact.phone)
 
     msg = EmailMessage()
@@ -67,6 +68,10 @@ def build_message(contact: Contact, qr_path: Path, from_address: str, subject: s
     msg["To"] = contact.email
     msg["Subject"] = subject
     msg.set_content(body)
+
+    if html_body_template:
+        html_body = Template(html_body_template).render(fullname=contact.fullname, email=contact.email, phone=contact.phone)
+        msg.add_alternative(html_body, subtype='html')
 
     with open(qr_path, "rb") as f:
         data = f.read()
@@ -111,6 +116,10 @@ def parse_arguments():
         default="Hello {fullname},\n\nPlease find your QR code attached.\n\nCheers,\nTeam",
         help="Email body template with placeholders {fullname}, {email}, {phone}",
     )
+    parser.add_argument(
+        "--html-body",
+        help="HTML email body template with placeholders {fullname}, {email}, {phone}",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Generate QR and email preview without sending")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     return parser.parse_args()
@@ -137,7 +146,7 @@ def main():
 
     for contact in contacts:
         qr_path = make_qr(contact, args.output_dir)
-        message = build_message(contact, qr_path, from_email, args.subject, args.body)
+        message = build_message(contact, qr_path, from_email, args.subject, args.body, args.html_body)
 
         if args.dry_run:
             logging.info("Dry run: would send %s email to %s with attachment %s", args.subject, contact.email, qr_path)

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QR Code Email Generator</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+      p {
+        line-height: 1.6;
+        color: #666;
+      }
+      .feature {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: #f9f9f9;
+        border-left: 4px solid #007bff;
+      }
+      .api-endpoint {
+        background-color: #e9ecef;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>QR Code Email Generator</h1>
+      <p>
+        Welcome to the QR Code Email Generator service. This application allows
+        you to generate personalized QR codes containing contact information and
+        send them via email.
+      </p>
+
+      <div class="feature">
+        <h3>Key Features:</h3>
+        <ul>
+          <li>Generate QR codes with contact details (name, email, phone)</li>
+          <li>Send personalized emails with QR code attachments</li>
+          <li>RESTful API for easy integration</li>
+          <li>HTML templated emails for rich formatting</li>
+          <li>Batch processing via CSV files</li>
+        </ul>
+      </div>
+
+      <div class="feature">
+        <h3>API Usage:</h3>
+        <p>Use the following endpoint to generate and send QR codes:</p>
+        <div class="api-endpoint">POST /generate-qr-email</div>
+        <p><strong>Request Body (JSON):</strong></p>
+        <pre>
+            {
+            "fullname": "John Doe",
+            "email": "john@example.com",
+            "phone": "+1234567890",
+            "subject": "Your QR Code",
+            "body": "Hello {fullname}, please find your QR code attached."
+            }
+        </pre>
+      </div>
+
+      <div class="feature">
+        <h3>Command Line Usage:</h3>
+        <p>For batch processing, use the command line tool:</p>
+        <div class="api-endpoint">
+          python generate_and_send.py --csv contacts.csv
+        </div>
+      </div>
+
+      <p>
+        For more information, check the README.md file or contact the
+        development team.
+      </p>
+    </div>
+  </body>
+</html>

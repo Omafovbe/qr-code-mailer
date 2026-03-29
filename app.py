@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
 from generate_and_send import Contact, make_qr, build_message, send_email, configure_logging
@@ -18,6 +18,10 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.route('/generate-qr-email', methods=['POST'])
 def generate_qr_email():
@@ -42,8 +46,9 @@ def generate_qr_email():
 
             subject = data.get('subject', 'Your QR Code')
             body_template = data.get('body', 'Hello {fullname},\n\nPlease find your QR code attached.\n\nCheers,\nTeam')
+            html_body_template = data.get('html_body')
 
-            message = build_message(contact, qr_path, FROM_EMAIL, subject, body_template)
+            message = build_message(contact, qr_path, FROM_EMAIL, subject, body_template, html_body_template)
             send_email(message, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, use_tls=(SMTP_PORT == 587))
 
         return jsonify({"success": True, "message": f"QR code sent to {email}"}), 200

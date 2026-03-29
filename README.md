@@ -9,6 +9,10 @@ Python CSV->QRCode->Email attachment pipeline with web API.
 - attaches each QR code to a personalized email
 - sends via SMTP server
 - **NEW**: REST API for dynamic web form integration
+- **NEW**: Landing page at root URL describing the app
+- **NEW**: HTML templated emails with Jinja2 placeholders
+- **NEW**: Landing page describing the service
+- **NEW**: HTML templated emails support
 
 ## Setup
 
@@ -34,7 +38,7 @@ FROM_EMAIL=you@example.com
 ### Batch processing (CSV)
 
 ```powershell
-python generate_and_send.py --csv sample_contacts.csv --subject "Your QR Code" --body "Hello {fullname},\n\nattached is your QR code." --dry-run
+python generate_and_send.py --csv sample_contacts.csv --subject "Your QR Code" --body "Hello {fullname},\n\nattached is your QR code." --html-body "<h1>Hello {fullname}</h1><p>attached is your QR code.</p>" --dry-run
 ```
 
 ### Web API (for dynamic forms)
@@ -53,7 +57,8 @@ Send POST to `http://localhost:5000/generate-qr-email`:
   "email": "john@example.com",
   "phone": "+1234567890",
   "subject": "Your Event QR Code",
-  "body": "Hello {fullname},\n\nWelcome to Event2026!\n\nYour QR code is attached."
+  "body": "Hello {fullname},\n\nWelcome to Event2026!\n\nYour QR code is attached.",
+  "html_body": "<h1>Hello {fullname}</h1><p>Welcome to Event2026!</p><p>Your QR code is attached.</p>"
 }
 ```
 
@@ -70,6 +75,7 @@ Send POST to `http://localhost:5000/generate-qr-email`:
 ```powershell
 python app.py
 # Server runs on http://localhost:5000
+# Visit http://localhost:5000 for the landing page
 ```
 
 ## Web Form Integration
