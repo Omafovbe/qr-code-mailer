@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thank You</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      .container {
+        background: white;
+        padding: 50px 40px;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        text-align: center;
+        max-width: 500px;
+        border: 3px solid #667eea;
+      }
+      h1 {
+        color: #333;
+        font-size: 2.5em;
+        margin: 0 0 20px 0;
+        word-wrap: break-word;
+      }
+      .message {
+        color: #666;
+        font-size: 1.1em;
+        margin: 20px 0;
+        line-height: 1.6;
+      }
+      .scan-info {
+        background: #f0f4ff;
+        padding: 20px;
+        border-radius: 8px;
+        margin: 20px 0;
+        border-left: 4px solid #667eea;
+      }
+      .scan-count {
+        font-size: 1.5em;
+        color: #667eea;
+        font-weight: bold;
+      }
+      .checkmark {
+        font-size: 3em;
+        color: #28a745;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="checkmark">✓</div>
+      <h1>Thank You, {{ fullname }}!</h1>
+      <div class="message">
+        We have verified your information successfully.
+        <br />
+        <strong>Email:</strong> {{ email }}
+      </div>
+      <div class="scan-info">
+        <div class="message">Total Scans</div>
+        <div class="scan-count">{{ scan_count }}</div>
+      </div>
+      <div class="message">We appreciate your participation! 🎉</div>
+    </div>
+  </body>
+</html>

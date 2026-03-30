@@ -6,6 +6,7 @@ import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import qrcode
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ from jinja2 import Template
 
 @dataclass
 class Contact:
+    unique_id: str
     fullname: str
     email: str
     phone: str
@@ -31,32 +33,35 @@ def load_contacts(csv_path: Path):
     contacts = []
     with csv_path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        required = {"fullname", "email", "phone"}
+        required = {"unique_id", "fullname", "email", "phone"}
         if not required.issubset(reader.fieldnames or []):
             raise ValueError(f"CSV header must contain: {', '.join(required)}")
         for row in reader:
+            unique_id = (row.get("unique_id") or "").strip()
             fullname = (row.get("fullname") or "").strip()
             email = (row.get("email") or "").strip()
             phone = (row.get("phone") or "").strip()
-            if not fullname or not email or not phone:
+            if not unique_id or not fullname or not email or not phone:
                 logging.warning("Skipping contact with missing data: %s", row)
                 continue
-            contacts.append(Contact(fullname=fullname, email=email, phone=phone))
+            contacts.append(Contact(unique_id=unique_id, fullname=fullname, email=email, phone=phone))
     return contacts
 
 
 def make_qr(contact: Contact, output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
-    payload = f"Name: {contact.fullname}\nEmail: {contact.email}\nPhone: {contact.phone}\nEvent2026"
+    app_base = os.getenv("APP_BASE_URL", "http://localhost:5000").rstrip("/")
+    scan_url = f"{app_base}/scan?uid={quote_plus(contact.unique_id)}"
+
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
-    qr.add_data(payload)
+    qr.add_data(scan_url)
     qr.make(fit=True)
 
     img = qr.make_image(fill_color="black", back_color="white")
     sanitized = contact.email.replace("@", "_at_").replace(".", "_")
     output_file = output_dir / f"{sanitized}.png"
     img.save(output_file)
-    logging.info("Generated QR code for %s -> %s", contact.email, output_file)
+    logging.info("Generated QR code for %s -> %s (%s)", contact.unique_id, output_file, scan_url)
     return output_file
 
 
