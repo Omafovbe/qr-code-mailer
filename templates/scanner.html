@@ -30,11 +30,19 @@
         border-radius: 8px;
         margin: 20px 0;
       }
-      #preview {
+      #videoContainer {
+        position: relative;
         width: 100%;
         max-width: 400px;
         margin: 20px auto;
+        display: none;
+      }
+      #preview {
+        width: 100%;
         border-radius: 8px;
+        background-color: #000;
+      }
+      #scanCanvas {
         display: none;
       }
       #output {
@@ -110,7 +118,10 @@
 
       <div id="loadingMessage">🎥 Click "Start Scanning" to begin</div>
 
-      <video id="preview"></video>
+      <div id="videoContainer">
+        <video id="preview" autoplay playsinline muted></video>
+        <canvas id="scanCanvas"></canvas>
+      </div>
 
       <div
         id="fileUploadSection"
@@ -155,13 +166,18 @@
       </div>
     </div>
 
-    <script src="https://cdn.rawgit.com/serratus/quaggaJS/master/dist/quagga.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script>
-      let quagga = null
+      let stream = null
+      let animationId = null
       let scanning = false
 
+      const videoContainer = document.getElementById('videoContainer')
       const preview = document.getElementById('preview')
+      const scanCanvas = document.getElementById('scanCanvas')
+      const canvasCtx = scanCanvas.getContext('2d', {
+        willReadFrequently: true,
+      })
       const loadingMessage = document.getElementById('loadingMessage')
       const outputContainer = document.getElementById('output')
       const outputMessage = document.getElementById('outputMessage')
@@ -187,76 +203,86 @@
       resetButton.addEventListener('click', resetScanner)
       scanFileButton.addEventListener('click', scanFromFile)
 
-      function startScanning() {
-        if (window.Quagga) {
-          try {
-            window.Quagga.stop()
-          } catch (e) {
-            console.log('Quagga stop error:', e)
+      async function startScanning() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          showError(
+            'Camera API not supported in this browser. Try uploading an image instead.',
+          )
+          return
+        }
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+          })
+        } catch (err) {
+          console.error('Camera access error:', err)
+          showError(
+            'Could not access camera: ' +
+              (err.message || err.name) +
+              '. Try uploading an image instead.',
+          )
+          return
+        }
+
+        preview.srcObject = stream
+        preview.style.display = 'block'
+        videoContainer.style.display = 'block'
+        loadingMessage.innerText = '⌛ Scanning for QR codes...'
+        loadingMessage.style.display = 'block'
+        outputContainer.style.display = 'none'
+        startButton.disabled = true
+        resetButton.disabled = false
+        scanning = true
+
+        preview.onloadedmetadata = () => {
+          preview.play()
+          tick()
+        }
+      }
+
+      function tick() {
+        if (!scanning || !stream) return
+
+        if (preview.readyState === preview.HAVE_ENOUGH_DATA) {
+          scanCanvas.width = preview.videoWidth
+          scanCanvas.height = preview.videoHeight
+          canvasCtx.drawImage(
+            preview,
+            0,
+            0,
+            scanCanvas.width,
+            scanCanvas.height,
+          )
+
+          const imageData = canvasCtx.getImageData(
+            0,
+            0,
+            scanCanvas.width,
+            scanCanvas.height,
+          )
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert',
+          })
+
+          if (code) {
+            loadingMessage.style.display = 'none'
+            outputContainer.style.display = 'block'
+            outputContainer.className = 'success'
+            outputMessage.innerText = 'QR Code Detected!'
+            outputData.innerText = code.data
+            processQRCode(code.data)
+            stopScanning()
+            return
           }
         }
 
-        loadingMessage.innerText = '⌛ Scanning for QR codes...'
-        loadingMessage.style.display = 'block'
-        preview.style.display = 'block'
-
-        window.Quagga.init(
-          {
-            inputStream: {
-              name: 'Live',
-              type: 'LiveStream',
-              target: preview,
-              constraints: {
-                width: 320,
-                height: 240,
-                facingMode: 'environment'
-              }
-            },
-            decoder: {
-              workers: 2,
-              debug: false,
-              multiple: false
-            },
-            locator: {
-              halfSample: true,
-              patchSize: 'medium'
-            }
-          },
-          function (err) {
-            if (err) {
-              console.error('Quagga init error:', err)
-              showError('Camera initialization failed. Try uploading an image instead.')
-              return
-            }
-
-            window.Quagga.start()
-            startButton.disabled = true
-            resetButton.disabled = false
-
-            window.Quagga.onDetected((data) => {
-              if (data.codeResult.code) {
-                const code = data.codeResult.code
-                loadingMessage.style.display = 'none'
-                outputContainer.style.display = 'block'
-                outputContainer.className = 'success'
-                outputMessage.innerText = 'QR Code Detected!'
-                outputData.innerText = code
-
-                processQRCode(code)
-
-                // Stop scanning after detection
-                setTimeout(() => {
-                  stopScanning()
-                }, 3000)
-              }
-            })
-          }
-        )
+        animationId = requestAnimationFrame(tick)
       }
 
       function resetScanner() {
         stopScanning()
-        preview.style.display = 'none'
+        videoContainer.style.display = 'none'
         loadingMessage.style.display = 'block'
         loadingMessage.innerText = '🎥 Click "Start Scanning" to begin'
         outputContainer.style.display = 'none'
@@ -265,14 +291,16 @@
       }
 
       function stopScanning() {
-        if (window.Quagga) {
-          try {
-            window.Quagga.stop()
-          } catch (e) {
-            console.log('Quagga stop error:', e)
-          }
-        }
         scanning = false
+        if (animationId) {
+          cancelAnimationFrame(animationId)
+          animationId = null
+        }
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop())
+          stream = null
+        }
+        preview.srcObject = null
         startButton.disabled = false
         resetButton.disabled = true
       }
@@ -307,7 +335,12 @@
             const ctx = canvas.getContext('2d')
             ctx.drawImage(img, 0, 0)
 
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const imageData = ctx.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height,
+            )
             const code = jsQR(imageData.data, imageData.width, imageData.height)
 
             loadingMessage.style.display = 'none'
@@ -320,7 +353,7 @@
               processQRCode(code.data)
             } else {
               showError(
-                'No QR code found in the image. Please try another image.'
+                'No QR code found in the image. Please try another image.',
               )
             }
           }
@@ -363,19 +396,15 @@
 
       // Handle page visibility changes to stop camera when tab is hidden
       document.addEventListener('visibilitychange', function () {
-        if (document.hidden && window.Quagga) {
+        if (document.hidden && scanning) {
           stopScanning()
         }
       })
 
       // Handle page unload
       window.addEventListener('beforeunload', function () {
-        if (window.Quagga) {
-          try {
-            window.Quagga.stop()
-          } catch (e) {
-            console.log('Cleanup error:', e)
-          }
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop())
         }
       })
     </script>
