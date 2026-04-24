@@ -2,3 +2,5 @@ qrcode[pil]
 Pillow
 python-dotenv
 Flask
+gunicorn
+waitress

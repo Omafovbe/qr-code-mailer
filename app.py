@@ -194,6 +194,11 @@ def scans():
     return jsonify([dict(r) for r in rows])
 
 
+@app.route('/scanner', methods=['GET'])
+def scanner():
+    return render_template('scanner.html')
+
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "healthy"}), 200
