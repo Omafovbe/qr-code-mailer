@@ -382,11 +382,29 @@
               outputMessage.innerText = 'Processing scan...'
               setTimeout(() => {
                 window.location.href = data
-              }, 1000)
+              }, 2000)
               return
             }
           } catch (e) {
             console.error('Invalid URL:', data)
+          }
+        }
+
+        // Check if data contains "ID:" with an ID value
+        if (data.includes('ID:') || data.includes('ID =')) {
+          const idMatch = data.match(/ID\s*:?\s*(.+?)(?:\n|$)/i)
+          if (idMatch && idMatch[1]) {
+            const id = idMatch[1].trim()
+            const domain = window.location.origin
+            const scanUrl = `${domain}/scan?uid=${encodeURIComponent(id)}`
+
+            outputMessage.innerText = 'Processing scan...'
+            outputData.innerText = `Data: ${data}\n\n`
+            outputData.innerText += `Redirecting to scan page for ID: ${id}`
+            setTimeout(() => {
+              window.location.href = scanUrl
+            }, 5000)
+            return
           }
         }
 

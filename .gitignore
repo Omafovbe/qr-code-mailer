@@ -2,5 +2,6 @@
 
 /venv
 /qrmail
+/output
 
 sample_contacts.csv
