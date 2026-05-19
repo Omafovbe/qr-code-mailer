@@ -52,11 +52,11 @@ def make_qr(contact: Contact, output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
     app_base = os.getenv("APP_BASE_URL", "http://localhost:5000").rstrip("/")
     # scan_url = f"{app_base}/scan?uid={quote_plus(contact.unique_id)}"
-    # scan_url = f"{app_base}/scan?uid={quote_plus(contact.unique_id)}"
-    payload = f"Name: {contact.fullname}\nEmail: {contact.email}\nPhone: {contact.phone}\nID: {contact.unique_id}\n"
+    scan_url = f"{app_base}/screening?uid={quote_plus(contact.unique_id)}"
+    # payload = f"Name: {contact.fullname}\nEmail: {contact.email}\nPhone: {contact.phone}\nID: {contact.unique_id}\n"
     
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
-    qr.add_data(payload)
+    qr.add_data(scan_url)
     qr.make(fit=True)
 
     img = qr.make_image(fill_color="black", back_color="white")

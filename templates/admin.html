@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin - Scan History</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1000px;
+        margin: 20px auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+      }
+      th,
+      td {
+        padding: 8px 12px;
+        border: 1px solid #eee;
+        text-align: left;
+      }
+      th {
+        background: #f6f8ff;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .nav a {
+        margin-left: 12px;
+        text-decoration: none;
+        color: #007bff;
+      }
+      .toolbar {
+        margin-top: 20px;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+      .toolbar form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .toolbar input[type='text'],
+      .toolbar select {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+      }
+      .toolbar button {
+        padding: 8px 14px;
+        border: none;
+        border-radius: 6px;
+        background-color: #007bff;
+        color: white;
+        cursor: pointer;
+      }
+      .pager {
+        margin-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .pager a {
+        margin: 0 6px;
+        text-decoration: none;
+        color: #007bff;
+      }
+      .pager span {
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <h1>Scan History</h1>
+      <div class="nav">
+        <span>Signed in as {{ user.email }}</span>
+        <a href="/admin/tokens">Token Management</a>
+        <a href="/logout">Logout</a>
+        <a href="/">Home</a>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <form method="get" action="/admin">
+        <input
+          type="text"
+          name="q"
+          value="{{ q }}"
+          placeholder="Search by name, email, UID, or scan ID"
+        />
+        <label>
+          Per page:
+          <select name="per_page">
+            <option value="10" {% if per_page="" ="10" %}selected{% endif %}>
+              10
+            </option>
+            <option value="25" {% if per_page="" ="25" %}selected{% endif %}>
+              25
+            </option>
+            <option value="50" {% if per_page="" ="50" %}selected{% endif %}>
+              50
+            </option>
+            <option value="100" {% if per_page="" ="100" %}selected{% endif %}>
+              100
+            </option>
+          </select>
+        </label>
+        <button type="submit">Search</button>
+      </form>
+      <div>
+        <span>Showing {{ scans|length }} of {{ total }} records</span>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>UID</th>
+          <th>Fullname</th>
+          <th>Email</th>
+          <th>Scanned At (UTC)</th>
+          <th>Scan Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if scans %} {% for s in scans %}
+        <tr>
+          <td>{{ s.id }}</td>
+          <td>{{ s.unique_id }}</td>
+          <td>{{ s.fullname }}</td>
+          <td>{{ s.email }}</td>
+          <td>{{ s.scanned_at }}</td>
+          <td>{{ s.scan_count }}</td>
+        </tr>
+        {% endfor %} {% else %}
+        <tr>
+          <td
+            colspan="6"
+            style="text-align: center; color: #666; padding: 20px"
+          >
+            No scan records found.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <div class="pager">
+      <div>
+        {% if page > 1 %}
+        <a
+          href="/admin?page={{ page - 1 }}&per_page={{ per_page }}{% if q %}&q={{ q }}{% endif %}"
+          >« Previous</a
+        >
+        {% endif %} {% if page < total_pages %}
+        <a
+          href="/admin?page={{ page + 1 }}&per_page={{ per_page }}{% if q %}&q={{ q }}{% endif %}"
+          >Next »</a
+        >
+        {% endif %}
+      </div>
+      <span>Page {{ page }} of {{ total_pages }}</span>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QR Screening</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f6fb;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      .container {
+        background: white;
+        width: 100%;
+        max-width: 520px;
+        border-radius: 12px;
+        padding: 28px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+      }
+      h1 {
+        margin-top: 0;
+        color: #333;
+        text-align: center;
+      }
+      .info {
+        margin-top: 20px;
+        padding: 20px;
+        background: #f8f9ff;
+        border-left: 4px solid #4f6ef7;
+        border-radius: 8px;
+      }
+      .info p {
+        margin: 8px 0;
+        color: #444;
+        line-height: 1.6;
+      }
+      .alert {
+        margin-top: 20px;
+        padding: 18px;
+        background: #fff4e5;
+        color: #7a5900;
+        border: 1px solid #ffe6b3;
+        border-radius: 8px;
+      }
+      .actions {
+        margin-top: 24px;
+        text-align: center;
+      }
+      .actions a {
+        display: inline-block;
+        margin: 0 8px;
+        padding: 12px 24px;
+        border-radius: 8px;
+        background: #007bff;
+        color: white;
+        text-decoration: none;
+      }
+      .actions a.secondary {
+        background: #6c757d;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>QR Screening</h1>
+      <div class="info">
+        <p><strong>Name:</strong> {{ fullname }}</p>
+        <p><strong>Email:</strong> {{ email }}</p>
+        <p><strong>Phone:</strong> {{ phone }}</p>
+        <p><strong>UID:</strong> {{ uid }}</p>
+      </div>
+
+      <!-- <div class="alert">
+        This user is not logged in. Scan information is shown for review only.
+        No scan count has been recorded. Please log in first to register a scan.
+      </div> -->
+
+      <!-- <div class="actions">
+        <a href="/login">Login to record scans</a>
+        <a class="secondary" href="/">Back to home</a>
+      </div> -->
+    </div>
+  </body>
+</html>

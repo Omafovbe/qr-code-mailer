@@ -5,3 +5,6 @@
 /output
 
 sample_contacts.csv
+*.log
+app copy.py
+create_admin_user.py

@@ -160,6 +160,47 @@
         </button>
       </div>
 
+      <div
+        id="manualTestSection"
+        style="
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #eef7ff;
+          border-radius: 8px;
+        "
+      >
+        <h3 style="margin-top: 0; color: #666">Manual Screening Test</h3>
+        <p style="margin-bottom: 10px; font-size: 14px; color: #666">
+          Paste an existing UID or full screening URL to test the flow without
+          scanning.
+        </p>
+        <input
+          type="text"
+          id="manualUidInput"
+          placeholder="Enter UID or full /screening?uid=... URL"
+          style="
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+          "
+        />
+        <button
+          id="manualTestButton"
+          style="
+            padding: 10px 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          "
+        >
+          Open Screening Test
+        </button>
+      </div>
+
       <div id="output">
         <div id="outputMessage">QR Code detected!</div>
         <div id="outputData"></div>
@@ -202,6 +243,10 @@
       startButton.addEventListener('click', startScanning)
       resetButton.addEventListener('click', resetScanner)
       scanFileButton.addEventListener('click', scanFromFile)
+      const manualUidInput = document.getElementById('manualUidInput')
+      const manualTestButton = document.getElementById('manualTestButton')
+
+      manualTestButton.addEventListener('click', openScreeningTest)
 
       async function startScanning() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -399,7 +444,7 @@
             const scanUrl = `${domain}/scan?uid=${encodeURIComponent(id)}`
 
             outputMessage.innerText = 'Processing scan...'
-            outputData.innerText = `Data: ${data}\n\n`
+            outputData.innerText = `Data:\n\n${data}\n\n`
             outputData.innerText += `Redirecting to scan page for ID: ${id}`
             setTimeout(() => {
               window.location.href = scanUrl
@@ -409,7 +454,37 @@
         }
 
         // For other QR codes, just display the data
-        outputData.innerText = `Data: ${data}`
+        outputData.innerText = `Data:\n\n${data}`
+      }
+
+      function openScreeningTest() {
+        const value = manualUidInput.value.trim()
+        if (!value) {
+          showError('Please enter a UID or screening URL to test.')
+          return
+        }
+
+        let targetUrl = value
+        try {
+          const parsed = new URL(value)
+          if (parsed.pathname.includes('/screening')) {
+            targetUrl = parsed.toString()
+          } else if (parsed.searchParams.get('uid')) {
+            targetUrl = `${window.location.origin}/screening?uid=${encodeURIComponent(parsed.searchParams.get('uid'))}`
+          } else {
+            showError(
+              'URL must include a UID query string or be a /screening link.',
+            )
+            return
+          }
+        } catch (err) {
+          // Not a full URL, treat as plain UID
+          targetUrl = `${window.location.origin}/screening?uid=${encodeURIComponent(value)}`
+        }
+
+        outputMessage.innerText = 'Opening screening test...'
+        outputData.innerText = targetUrl
+        window.location.href = targetUrl
       }
 
       // Handle page visibility changes to stop camera when tab is hidden

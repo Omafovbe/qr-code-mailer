@@ -42,7 +42,23 @@
   </head>
   <body>
     <div class="container">
-      <h1>QR Code Email Generator</h1>
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        "
+      >
+        <h1>QR Code Email Generator</h1>
+        <div>
+          {% if user %}
+          <a href="/admin">Admin</a> |
+          <a href="/logout">Logout</a>
+          {% else %}
+          <a href="/login">Login</a>
+          {% endif %}
+        </div>
+      </div>
       <p>
         Welcome to the QR Code Email Generator service. This application allows
         you to generate personalized QR codes containing contact information and
