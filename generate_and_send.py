@@ -51,8 +51,10 @@ def load_contacts(csv_path: Path):
 def make_qr(contact: Contact, output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
     app_base = os.getenv("APP_BASE_URL", "http://localhost:5000").rstrip("/")
-    scan_url = f"{app_base}/scan?uid={quote_plus(contact.unique_id)}"
-
+    # scan_url = f"{app_base}/scan?uid={quote_plus(contact.unique_id)}"
+    scan_url = f"{app_base}/screening?uid={quote_plus(contact.unique_id)}"
+    # payload = f"Name: {contact.fullname}\nEmail: {contact.email}\nPhone: {contact.phone}\nID: {contact.unique_id}\n"
+    
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
     qr.add_data(scan_url)
     qr.make(fit=True)
@@ -61,7 +63,7 @@ def make_qr(contact: Contact, output_dir: Path):
     sanitized = contact.email.replace("@", "_at_").replace(".", "_")
     output_file = output_dir / f"{sanitized}.png"
     img.save(output_file)
-    logging.info("Generated QR code for %s -> %s (%s)", contact.unique_id, output_file, scan_url)
+    logging.info("Generated QR code for %s -> %s (%s)", contact.unique_id, output_file)
     return output_file
 
 

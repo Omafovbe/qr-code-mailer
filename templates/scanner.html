@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QR Code Scanner</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+        text-align: center;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
+      #loadingMessage {
+        text-align: center;
+        padding: 40px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        margin: 20px 0;
+      }
+      #videoContainer {
+        position: relative;
+        width: 100%;
+        max-width: 400px;
+        margin: 20px auto;
+        display: none;
+      }
+      #preview {
+        width: 100%;
+        border-radius: 8px;
+        background-color: #000;
+      }
+      #scanCanvas {
+        display: none;
+      }
+      #output {
+        margin: 20px 0;
+        padding: 20px;
+        background-color: #f0f4ff;
+        border-radius: 8px;
+        border-left: 4px solid #007bff;
+        display: none;
+      }
+      #outputMessage {
+        font-size: 1.2em;
+        color: #007bff;
+        font-weight: bold;
+      }
+      #outputData {
+        margin-top: 10px;
+        word-break: break-all;
+        color: #666;
+      }
+      .error {
+        color: #dc3545;
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+      }
+      .success {
+        color: #155724;
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+      }
+      button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 10px;
+        font-size: 16px;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      button:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+      }
+      .warning {
+        background-color: #fff3cd;
+        color: #856404;
+        padding: 15px;
+        border-radius: 4px;
+        margin: 20px 0;
+        border: 1px solid #ffeaa7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>QR Code Scanner</h1>
+
+      <div id="httpsWarning" class="warning" style="display: none">
+        ⚠️ Camera access requires HTTPS. Please access this page over a secure
+        connection.
+      </div>
+
+      <p>Click "Start Scanning" to access your camera and scan QR codes.</p>
+
+      <div>
+        <button id="startButton">Start Scanning</button>
+        <button id="resetButton" disabled>Reset</button>
+      </div>
+
+      <div id="loadingMessage">🎥 Click "Start Scanning" to begin</div>
+
+      <div id="videoContainer">
+        <video id="preview" autoplay playsinline muted></video>
+        <canvas id="scanCanvas"></canvas>
+      </div>
+
+      <div
+        id="fileUploadSection"
+        style="
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #f8f9fa;
+          border-radius: 8px;
+        "
+      >
+        <h3 style="margin-top: 0; color: #666">
+          Alternative: Upload QR Code Image
+        </h3>
+        <p style="margin-bottom: 10px; font-size: 14px; color: #666">
+          For testing on HTTP or when camera is unavailable:
+        </p>
+        <input
+          type="file"
+          id="qrFileInput"
+          accept="image/*"
+          style="margin-bottom: 10px"
+        />
+        <br />
+        <button
+          id="scanFileButton"
+          style="
+            padding: 8px 16px;
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          "
+        >
+          Scan from File
+        </button>
+      </div>
+
+      <div
+        id="manualTestSection"
+        style="
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #eef7ff;
+          border-radius: 8px;
+        "
+      >
+        <h3 style="margin-top: 0; color: #666">Manual Screening Test</h3>
+        <p style="margin-bottom: 10px; font-size: 14px; color: #666">
+          Paste an existing UID or full screening URL to test the flow without
+          scanning.
+        </p>
+        <input
+          type="text"
+          id="manualUidInput"
+          placeholder="Enter UID or full /screening?uid=... URL"
+          style="
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+          "
+        />
+        <button
+          id="manualTestButton"
+          style="
+            padding: 10px 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          "
+        >
+          Open Screening Test
+        </button>
+      </div>
+
+      <div id="output">
+        <div id="outputMessage">QR Code detected!</div>
+        <div id="outputData"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script>
+      let stream = null
+      let animationId = null
+      let scanning = false
+
+      const videoContainer = document.getElementById('videoContainer')
+      const preview = document.getElementById('preview')
+      const scanCanvas = document.getElementById('scanCanvas')
+      const canvasCtx = scanCanvas.getContext('2d', {
+        willReadFrequently: true,
+      })
+      const loadingMessage = document.getElementById('loadingMessage')
+      const outputContainer = document.getElementById('output')
+      const outputMessage = document.getElementById('outputMessage')
+      const outputData = document.getElementById('outputData')
+      const startButton = document.getElementById('startButton')
+      const resetButton = document.getElementById('resetButton')
+      const httpsWarning = document.getElementById('httpsWarning')
+      const scanFileButton = document.getElementById('scanFileButton')
+      const qrFileInput = document.getElementById('qrFileInput')
+
+      // Check for HTTPS requirement (but allow localhost for testing)
+      const isLocalhost =
+        location.hostname === 'localhost' ||
+        location.hostname === '127.0.0.1' ||
+        location.hostname === ''
+      if (location.protocol !== 'https:' && !isLocalhost) {
+        httpsWarning.style.display = 'block'
+        startButton.disabled = true
+        startButton.textContent = 'HTTPS Required'
+      }
+
+      startButton.addEventListener('click', startScanning)
+      resetButton.addEventListener('click', resetScanner)
+      scanFileButton.addEventListener('click', scanFromFile)
+      const manualUidInput = document.getElementById('manualUidInput')
+      const manualTestButton = document.getElementById('manualTestButton')
+
+      manualTestButton.addEventListener('click', openScreeningTest)
+
+      async function startScanning() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          showError(
+            'Camera API not supported in this browser. Try uploading an image instead.',
+          )
+          return
+        }
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+          })
+        } catch (err) {
+          console.error('Camera access error:', err)
+          showError(
+            'Could not access camera: ' +
+              (err.message || err.name) +
+              '. Try uploading an image instead.',
+          )
+          return
+        }
+
+        preview.srcObject = stream
+        preview.style.display = 'block'
+        videoContainer.style.display = 'block'
+        loadingMessage.innerText = '⌛ Scanning for QR codes...'
+        loadingMessage.style.display = 'block'
+        outputContainer.style.display = 'none'
+        startButton.disabled = true
+        resetButton.disabled = false
+        scanning = true
+
+        preview.onloadedmetadata = () => {
+          preview.play()
+          tick()
+        }
+      }
+
+      function tick() {
+        if (!scanning || !stream) return
+
+        if (preview.readyState === preview.HAVE_ENOUGH_DATA) {
+          scanCanvas.width = preview.videoWidth
+          scanCanvas.height = preview.videoHeight
+          canvasCtx.drawImage(
+            preview,
+            0,
+            0,
+            scanCanvas.width,
+            scanCanvas.height,
+          )
+
+          const imageData = canvasCtx.getImageData(
+            0,
+            0,
+            scanCanvas.width,
+            scanCanvas.height,
+          )
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert',
+          })
+
+          if (code) {
+            loadingMessage.style.display = 'none'
+            outputContainer.style.display = 'block'
+            outputContainer.className = 'success'
+            outputMessage.innerText = 'QR Code Detected!'
+            outputData.innerText = code.data
+            processQRCode(code.data)
+            stopScanning()
+            return
+          }
+        }
+
+        animationId = requestAnimationFrame(tick)
+      }
+
+      function resetScanner() {
+        stopScanning()
+        videoContainer.style.display = 'none'
+        loadingMessage.style.display = 'block'
+        loadingMessage.innerText = '🎥 Click "Start Scanning" to begin'
+        outputContainer.style.display = 'none'
+        startButton.disabled = false
+        resetButton.disabled = true
+      }
+
+      function stopScanning() {
+        scanning = false
+        if (animationId) {
+          cancelAnimationFrame(animationId)
+          animationId = null
+        }
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop())
+          stream = null
+        }
+        preview.srcObject = null
+        startButton.disabled = false
+        resetButton.disabled = true
+      }
+
+      function showError(message) {
+        loadingMessage.innerText = '❌ ' + message
+        outputContainer.style.display = 'block'
+        outputContainer.className = 'error'
+        outputMessage.innerText = 'Camera Error'
+        outputData.innerText = message
+        startButton.disabled = false
+        resetButton.disabled = true
+      }
+
+      function scanFromFile() {
+        const file = qrFileInput.files[0]
+        if (!file) {
+          showError('Please select a QR code image file first.')
+          return
+        }
+
+        loadingMessage.innerText = '⌛ Processing image...'
+        loadingMessage.style.display = 'block'
+
+        const reader = new FileReader()
+        reader.onload = function (e) {
+          const img = new Image()
+          img.onload = function () {
+            const canvas = document.createElement('canvas')
+            canvas.width = img.width
+            canvas.height = img.height
+            const ctx = canvas.getContext('2d')
+            ctx.drawImage(img, 0, 0)
+
+            const imageData = ctx.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height,
+            )
+            const code = jsQR(imageData.data, imageData.width, imageData.height)
+
+            loadingMessage.style.display = 'none'
+
+            if (code) {
+              outputContainer.style.display = 'block'
+              outputContainer.className = 'success'
+              outputMessage.innerText = 'QR Code Detected from File!'
+              outputData.innerText = code.data
+              processQRCode(code.data)
+            } else {
+              showError(
+                'No QR code found in the image. Please try another image.',
+              )
+            }
+          }
+          img.onerror = function () {
+            loadingMessage.style.display = 'none'
+            showError('Failed to load image. Please try another file.')
+          }
+          img.src = e.target.result
+        }
+        reader.onerror = function () {
+          loadingMessage.style.display = 'none'
+          showError('Failed to read file. Please try again.')
+        }
+        reader.readAsDataURL(file)
+      }
+
+      function processQRCode(data) {
+        // Check if it's a scan URL from our system
+        if (data.includes('/scan?uid=')) {
+          // Extract the uid
+          try {
+            const url = new URL(data)
+            const uid = url.searchParams.get('uid')
+            if (uid) {
+              // Redirect to the scan URL to record the scan
+              outputMessage.innerText = 'Processing scan...'
+              setTimeout(() => {
+                window.location.href = data
+              }, 2000)
+              return
+            }
+          } catch (e) {
+            console.error('Invalid URL:', data)
+          }
+        }
+
+        // Check if data contains "ID:" with an ID value
+        if (data.includes('ID:') || data.includes('ID =')) {
+          const idMatch = data.match(/ID\s*:?\s*(.+?)(?:\n|$)/i)
+          if (idMatch && idMatch[1]) {
+            const id = idMatch[1].trim()
+            const domain = window.location.origin
+            const scanUrl = `${domain}/scan?uid=${encodeURIComponent(id)}`
+
+            outputMessage.innerText = 'Processing scan...'
+            outputData.innerText = `Data:\n\n${data}\n\n`
+            outputData.innerText += `Redirecting to scan page for ID: ${id}`
+            setTimeout(() => {
+              window.location.href = scanUrl
+            }, 5000)
+            return
+          }
+        }
+
+        // For other QR codes, just display the data
+        outputData.innerText = `Data:\n\n${data}`
+      }
+
+      function openScreeningTest() {
+        const value = manualUidInput.value.trim()
+        if (!value) {
+          showError('Please enter a UID or screening URL to test.')
+          return
+        }
+
+        let targetUrl = value
+        try {
+          const parsed = new URL(value)
+          if (parsed.pathname.includes('/screening')) {
+            targetUrl = parsed.toString()
+          } else if (parsed.searchParams.get('uid')) {
+            targetUrl = `${window.location.origin}/screening?uid=${encodeURIComponent(parsed.searchParams.get('uid'))}`
+          } else {
+            showError(
+              'URL must include a UID query string or be a /screening link.',
+            )
+            return
+          }
+        } catch (err) {
+          // Not a full URL, treat as plain UID
+          targetUrl = `${window.location.origin}/screening?uid=${encodeURIComponent(value)}`
+        }
+
+        outputMessage.innerText = 'Opening screening test...'
+        outputData.innerText = targetUrl
+        window.location.href = targetUrl
+      }
+
+      // Handle page visibility changes to stop camera when tab is hidden
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden && scanning) {
+          stopScanning()
+        }
+      })
+
+      // Handle page unload
+      window.addEventListener('beforeunload', function () {
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop())
+        }
+      })
+    </script>
+  </body>
+</html>

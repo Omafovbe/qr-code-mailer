@@ -49,7 +49,7 @@ Start the server:
 python app.py
 ```
 
-Send POST to `http://localhost:5000/generate-qr-email`:
+Send POST to `http://localhost:00/generate-qr-email`:
 
 ```json
 {

@@ -53,6 +53,13 @@
         color: #28a745;
         margin: 10px 0;
       }
+      .actions {
+        margin-top: 24px;
+        text-align: center;
+      }
+      .actions a.secondary {
+        background: #6c757d;
+      }
     </style>
   </head>
   <body>
@@ -67,6 +74,9 @@
       <div class="scan-info">
         <div class="message">Total Scans</div>
         <div class="scan-count">{{ scan_count }}</div>
+      </div>
+      <div class="actions">
+        <a class="secondary" href="/">Back to home</a>
       </div>
       <div class="message">We appreciate your participation! 🎉</div>
     </div>
