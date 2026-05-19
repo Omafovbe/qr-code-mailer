@@ -21,6 +21,8 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY") or os.urandom(24)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_PERMANENT"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 COOKIE_NAME = os.getenv('ADMIN_COOKIE_NAME', 'admin_session')
 COOKIE_MAX_AGE = int(os.getenv('ADMIN_COOKIE_MAX_AGE', 28800))
 FORCE_SECURE_COOKIE = os.getenv('FORCE_SECURE_COOKIE', 'auto')
@@ -223,7 +225,12 @@ def current_user():
     user_id = session.get('user_id')
     if not user_id:
         return None
-    return get_user_by_id(user_id)
+    user = get_user_by_id(user_id)
+    # Update session role if it's missing (fallback)
+    if user and 'user_role' not in session:
+        session['user_role'] = user.get('role')
+        session.modified = True
+    return user
 
 
 def create_admin_token(user_id, duration_seconds=COOKIE_MAX_AGE):
@@ -231,12 +238,15 @@ def create_admin_token(user_id, duration_seconds=COOKIE_MAX_AGE):
     now = datetime.utcnow()
     expires_at = (now + timedelta(seconds=duration_seconds)).isoformat()
     conn = get_db_connection()
-    with conn:
-        conn.execute(
-            "INSERT INTO admin_tokens (token_id, user_id, created_at, expires_at, revoked) VALUES (?, ?, ?, ?, 0)",
-            (token_id, user_id, now.isoformat(), expires_at),
-        )
-    conn.close()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO admin_tokens (token_id, user_id, created_at, expires_at, revoked) VALUES (?, ?, ?, ?, 0)",
+                (token_id, user_id, now.isoformat(), expires_at),
+            )
+            conn.commit()  # Explicit commit to ensure write is flushed
+    finally:
+        conn.close()
     return token_id
 
 
@@ -335,6 +345,8 @@ def login():
         session['user_id'] = user['id']
         session['user_email'] = user['email']
         session['user_name'] = user['name']
+        session['user_role'] = user['role']  # Store role in session as fallback
+        session.permanent = True
 
         # Prepare response and set secure admin cookie for quick camera-phone access
         if request.is_json:
@@ -342,6 +354,7 @@ def login():
         else:
             response = make_response(redirect(url_for('index')))
 
+        # Set admin cookie AFTER session is created
         set_admin_cookie(response, user['id'])
         return response
 
@@ -412,6 +425,13 @@ def get_user(user_id):
 
 
 def ensure_admin_user():
+    # First check session role (fast path for repeated requests)
+    if session.get('user_role') == 'admin':
+        user = current_user()
+        if user:
+            return user
+    
+    # Fallback to full check
     user = current_user() or verify_admin_cookie()
     if not user or not is_admin_user(user):
         return None
