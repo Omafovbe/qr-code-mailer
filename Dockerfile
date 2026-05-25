@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install system dependencies required by Pillow and others
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libffi-dev libssl-dev \
+    && apt-get install -y --no-install-recommends gcc libffi-dev libssl-dev libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

@@ -1,12 +1,13 @@
 import logging
 import os
-import sqlite3
 import tempfile
 import random
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, make_response
 from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -32,7 +33,27 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
-SCAN_DB_PATH = os.getenv("SCAN_DB_PATH", "scan_tracking.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def _serialize_row(row):
+    if row is None:
+        return None
+    data = dict(row)
+    for key, value in data.items():
+        if isinstance(value, datetime):
+            data[key] = value.isoformat()
+    return data
+
+
+def _serialize_rows(rows):
+    return [_serialize_row(row) for row in rows]
+
+
+def get_db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is required")
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 
 
@@ -66,102 +87,101 @@ def generate_html_body(fullName):
     """
     return htmlBody
 
-def get_db_connection():
-    conn = sqlite3.connect(SCAN_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db():
     conn = get_db_connection()
     with conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS contacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                unique_id TEXT UNIQUE NOT NULL,
-                fullname TEXT NOT NULL,
-                phone TEXT,
-                email TEXT NOT NULL
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id SERIAL PRIMARY KEY,
+                    unique_id TEXT UNIQUE NOT NULL,
+                    fullname TEXT NOT NULL,
+                    phone TEXT,
+                    email TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                contact_id INTEGER NOT NULL,
-                scanned_at TEXT NOT NULL,
-                scan_count INTEGER NOT NULL,
-                FOREIGN KEY (contact_id) REFERENCES contacts(id)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scans (
+                    id SERIAL PRIMARY KEY,
+                    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+                    scanned_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                    scan_count INTEGER NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                role TEXT NOT NULL DEFAULT 'member',
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+                    password_hash TEXT NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS admin_tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token_id TEXT UNIQUE NOT NULL,
-                user_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                revoked INTEGER NOT NULL DEFAULT 0,
-                revoked_at TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_tokens (
+                    id SERIAL PRIMARY KEY,
+                    token_id TEXT UNIQUE NOT NULL,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                    expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                    revoked_at TIMESTAMP WITHOUT TIME ZONE
+                )
+                """
             )
-            """
-        )
     conn.close()
 
 
 def save_contact(unique_id, fullname, phone, email):
     """Save or update contact in contacts table, return contact_id."""
     conn = get_db_connection()
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO contacts (unique_id, fullname, phone, email) VALUES (?, ?, ?, ?)",
-            (unique_id, fullname, phone, email),
-        )
-    # Fetch the contact_id after insert/update
-    cur = conn.execute(
-        "SELECT id FROM contacts WHERE unique_id = ?",
-        (unique_id,),
-    )
-    contact = cur.fetchone()
-    conn.close()
-    return contact["id"] if contact else None
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO contacts (unique_id, fullname, phone, email) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (unique_id) DO UPDATE SET fullname = EXCLUDED.fullname, phone = EXCLUDED.phone, email = EXCLUDED.email",
+                    (unique_id, fullname, phone, email),
+                )
+                cur.execute(
+                    "SELECT id FROM contacts WHERE unique_id = %s",
+                    (unique_id,),
+                )
+                contact = cur.fetchone()
+                return contact["id"] if contact else None
+    finally:
+        conn.close()
 
 
 def record_scan(contact_id):
     """Record a scan for a contact, increment scan_count."""
     conn = get_db_connection()
-    cur = conn.execute(
-        "SELECT MAX(scan_count) as max_count FROM scans WHERE contact_id = ?",
-        (contact_id,),
-    )
-    row = cur.fetchone()
-    last_count = row["max_count"] or 0
-    next_count = last_count + 1
-    scanned_at = datetime.utcnow().isoformat()
-    with conn:
-        conn.execute(
-            "INSERT INTO scans (contact_id, scanned_at, scan_count) VALUES (?, ?, ?)",
-            (contact_id, scanned_at, next_count),
-        )
-    conn.close()
-    return next_count
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT MAX(scan_count) as max_count FROM scans WHERE contact_id = %s",
+                    (contact_id,),
+                )
+                row = cur.fetchone()
+                last_count = row["max_count"] or 0
+                next_count = last_count + 1
+                cur.execute(
+                    "INSERT INTO scans (contact_id, scanned_at, scan_count) VALUES (%s, %s, %s)",
+                    (contact_id, datetime.utcnow(), next_count),
+                )
+                return next_count
+    finally:
+        conn.close()
 
 
 def hash_password(password):
@@ -175,46 +195,53 @@ def verify_password(stored_hash, password):
 def create_user(name, email, password, role='member'):
     role = role if role in {'admin', 'member'} else 'member'
     password_hash = hash_password(password)
-    created_at = datetime.utcnow().isoformat()
     conn = get_db_connection()
-    with conn:
-        conn.execute(
-            "INSERT INTO users (name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
-            (name, email, role, password_hash, created_at),
-        )
-    cur = conn.execute("SELECT id, name, email, role, created_at FROM users WHERE email = ?", (email,))
-    user = cur.fetchone()
-    conn.close()
-    return dict(user) if user else None
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (name, email, role, password_hash, created_at) VALUES (%s, %s, %s, %s, %s)",
+                    (name, email, role, password_hash, datetime.utcnow()),
+                )
+        return get_user_by_email(email)
+    finally:
+        conn.close()
 
 
 def get_user_by_email(email):
     conn = get_db_connection()
-    user = conn.execute(
-        "SELECT id, name, email, role, password_hash, created_at FROM users WHERE email = ?",
-        (email,),
-    ).fetchone()
-    conn.close()
-    return dict(user) if user else None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, email, role, password_hash, created_at FROM users WHERE email = %s",
+                (email,),
+            )
+            return _serialize_row(cur.fetchone())
+    finally:
+        conn.close()
 
 
 def get_user_by_id(user_id):
     conn = get_db_connection()
-    user = conn.execute(
-        "SELECT id, name, email, role, created_at FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
-    conn.close()
-    return dict(user) if user else None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, email, role, created_at FROM users WHERE id = %s",
+                (user_id,),
+            )
+            return _serialize_row(cur.fetchone())
+    finally:
+        conn.close()
 
 
 def fetch_all_users():
     conn = get_db_connection()
-    rows = conn.execute(
-        "SELECT id, name, email, role, created_at FROM users ORDER BY id DESC"
-    ).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, email, role, created_at FROM users ORDER BY id DESC")
+            return _serialize_rows(cur.fetchall())
+    finally:
+        conn.close()
 
 
 def is_admin_user(user):
@@ -236,38 +263,44 @@ def current_user():
 def create_admin_token(user_id, duration_seconds=COOKIE_MAX_AGE):
     token_id = secrets.token_urlsafe(24)
     now = datetime.utcnow()
-    expires_at = (now + timedelta(seconds=duration_seconds)).isoformat()
+    expires_at = now + timedelta(seconds=duration_seconds)
     conn = get_db_connection()
     try:
         with conn:
-            conn.execute(
-                "INSERT INTO admin_tokens (token_id, user_id, created_at, expires_at, revoked) VALUES (?, ?, ?, ?, 0)",
-                (token_id, user_id, now.isoformat(), expires_at),
-            )
-            conn.commit()  # Explicit commit to ensure write is flushed
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO admin_tokens (token_id, user_id, created_at, expires_at, revoked) VALUES (%s, %s, %s, %s, FALSE)",
+                    (token_id, user_id, now, expires_at),
+                )
+        return token_id
     finally:
         conn.close()
-    return token_id
 
 
 def get_admin_token(token_id):
     conn = get_db_connection()
-    token = conn.execute(
-        "SELECT token_id, user_id, created_at, expires_at, revoked FROM admin_tokens WHERE token_id = ?",
-        (token_id,),
-    ).fetchone()
-    conn.close()
-    return dict(token) if token else None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT token_id, user_id, created_at, expires_at, revoked FROM admin_tokens WHERE token_id = %s",
+                (token_id,),
+            )
+            return _serialize_row(cur.fetchone())
+    finally:
+        conn.close()
 
 
 def revoke_admin_token(token_id):
     conn = get_db_connection()
-    with conn:
-        conn.execute(
-            "UPDATE admin_tokens SET revoked = 1, revoked_at = ? WHERE token_id = ?",
-            (datetime.utcnow().isoformat(), token_id),
-        )
-    conn.close()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE admin_tokens SET revoked = TRUE, revoked_at = %s WHERE token_id = %s",
+                    (datetime.utcnow(), token_id),
+                )
+    finally:
+        conn.close()
 
 
 def _get_serializer():
@@ -401,7 +434,7 @@ def create_user_route():
     try:
         user = create_user(name, email, password, role)
         return jsonify({"success": True, "user": user}), 201
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return jsonify({"error": "A user with that email already exists"}), 409
 
 
@@ -444,25 +477,30 @@ def fetch_admin_tokens(q='', page=1, per_page=25):
     if q:
         like = f"%{q}%"
         query_filters.append(
-            "(t.token_id LIKE ? OR u.email LIKE ? OR u.name LIKE ? OR CAST(t.id AS TEXT) = ?)",
+            "(t.token_id LIKE %s OR u.email LIKE %s OR u.name LIKE %s OR CAST(t.id AS TEXT) = %s)",
         )
         query_params.extend([like, like, like, q])
 
     where_clause = " WHERE " + " AND ".join(query_filters) if query_filters else ""
     conn = get_db_connection()
-    total = conn.execute(
-        f"SELECT COUNT(*) as count FROM admin_tokens t JOIN users u ON t.user_id = u.id{where_clause}",
-        tuple(query_params),
-    ).fetchone()["count"]
-    offset = (page - 1) * per_page
-    rows = conn.execute(
-        f"SELECT t.token_id, t.user_id, u.email, u.name, t.created_at, t.expires_at, t.revoked, t.revoked_at "
-        f"FROM admin_tokens t JOIN users u ON t.user_id = u.id{where_clause} "
-        f"ORDER BY t.id DESC LIMIT ? OFFSET ?",
-        tuple(query_params + [per_page, offset]),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows], total
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) as count FROM admin_tokens t JOIN users u ON t.user_id = u.id{where_clause}",
+                tuple(query_params),
+            )
+            total = cur.fetchone()["count"]
+            offset = (page - 1) * per_page
+            cur.execute(
+                f"SELECT t.token_id, t.user_id, u.email, u.name, t.created_at, t.expires_at, t.revoked, t.revoked_at "
+                f"FROM admin_tokens t JOIN users u ON t.user_id = u.id{where_clause} "
+                f"ORDER BY t.id DESC LIMIT %s OFFSET %s",
+                tuple(query_params + [per_page, offset]),
+            )
+            rows = cur.fetchall()
+            return _serialize_rows(rows), total
+    finally:
+        conn.close()
 
 
 @app.route('/admin', methods=['GET'])
@@ -481,28 +519,32 @@ def admin_dashboard():
     if q:
         like = f"%{q}%"
         query_filters.append(
-            "(c.fullname LIKE ? OR c.email LIKE ? OR c.unique_id LIKE ? OR CAST(s.id AS TEXT) = ?)",
+            "(c.fullname LIKE %s OR c.email LIKE %s OR c.unique_id LIKE %s OR CAST(s.id AS TEXT) = %s)",
         )
         query_params.extend([like, like, like, q])
 
     where_clause = " WHERE " + " AND ".join(query_filters) if query_filters else ""
 
     conn = get_db_connection()
-    total = conn.execute(
-        f"SELECT COUNT(*) as count FROM scans s JOIN contacts c ON s.contact_id = c.id{where_clause}",
-        tuple(query_params),
-    ).fetchone()["count"]
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) as count FROM scans s JOIN contacts c ON s.contact_id = c.id{where_clause}",
+                tuple(query_params),
+            )
+            total = cur.fetchone()["count"]
+            cur.execute(
+                f"SELECT s.id, c.unique_id, c.fullname, c.email, s.scanned_at, s.scan_count "
+                f"FROM scans s "
+                f"JOIN contacts c ON s.contact_id = c.id{where_clause} "
+                f"ORDER BY s.id DESC LIMIT %s OFFSET %s",
+                tuple(query_params + [per_page, offset]),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
 
-    rows = conn.execute(
-        f"SELECT s.id, c.unique_id, c.fullname, c.email, s.scanned_at, s.scan_count \
-           FROM scans s \
-           JOIN contacts c ON s.contact_id = c.id{where_clause} \
-           ORDER BY s.id DESC LIMIT ? OFFSET ?",
-        tuple(query_params + [per_page, offset]),
-    ).fetchall()
-    conn.close()
-
-    scans = [dict(r) for r in rows]
+    scans = _serialize_rows(rows)
     total_pages = (total + per_page - 1) // per_page
     return render_template(
         'admin.html',
@@ -561,11 +603,15 @@ def screening():
         return jsonify({"error": "Missing required query parameter: uid"}), 400
 
     conn = get_db_connection()
-    contact = conn.execute(
-        "SELECT id, unique_id, fullname, email, phone FROM contacts WHERE unique_id = ?",
-        (uid,),
-    ).fetchone()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, unique_id, fullname, email, phone FROM contacts WHERE unique_id = %s",
+                (uid,),
+            )
+            contact = _serialize_row(cur.fetchone())
+    finally:
+        conn.close()
 
     if not contact:
         return jsonify({"error": "Contact not found"}), 404
@@ -641,11 +687,15 @@ def scan():
 
     # Look up contact_id from unique_id
     conn = get_db_connection()
-    contact = conn.execute(
-        "SELECT id, fullname, email FROM contacts WHERE unique_id = ?",
-        (uid,),
-    ).fetchone()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, fullname, email FROM contacts WHERE unique_id = %s",
+                (uid,),
+            )
+            contact = _serialize_row(cur.fetchone())
+    finally:
+        conn.close()
 
     if not contact:
         return jsonify({"error": "Contact not found"}), 404
@@ -667,11 +717,15 @@ def thanks():
         return jsonify({"error": "Missing uid"}), 400
 
     conn = get_db_connection()
-    scan_row = conn.execute(
-        "SELECT scan_count FROM scans WHERE contact_id = (SELECT id FROM contacts WHERE unique_id = ?) ORDER BY id DESC LIMIT 1",
-        (uid,),
-    ).fetchone()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT scan_count FROM scans WHERE contact_id = (SELECT id FROM contacts WHERE unique_id = %s) ORDER BY id DESC LIMIT 1",
+                (uid,),
+            )
+            scan_row = cur.fetchone()
+    finally:
+        conn.close()
 
     scan_count = scan_row["scan_count"] if scan_row else 0
 
@@ -681,14 +735,18 @@ def thanks():
 @app.route('/scans', methods=['GET'])
 def scans():
     conn = get_db_connection()
-    rows = conn.execute(
-        """SELECT s.id, c.unique_id, c.fullname, c.email, s.scanned_at, s.scan_count 
-           FROM scans s 
-           JOIN contacts c ON s.contact_id = c.id 
-           ORDER BY s.id DESC LIMIT 100"""
-    ).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.id, c.unique_id, c.fullname, c.email, s.scanned_at, s.scan_count 
+                   FROM scans s 
+                   JOIN contacts c ON s.contact_id = c.id 
+                   ORDER BY s.id DESC LIMIT 100"""
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return jsonify(_serialize_rows(rows))
 
 
 @app.route('/scanner', methods=['GET'])
