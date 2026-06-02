@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from click import echo
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, make_response
@@ -68,10 +69,12 @@ def generate_html_body(fullName):
           
           <p>Dear <strong>{fullName}</strong>,</p>
           
-          <p>Thank you for completing your registration. We are pleased to confirm that your details have been successfully processed.</p>
+          <p>Thank you very much for Registering for <strong>RESEARCH CAPACITY BUILDING SERIES</strong>.
+
+Thanks again and be punctual to avoid attendant delays.</p>
           
           <div style="background-color: #f9f9f9; border-left: 5px solid #3498db; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0;"><strong>Important:</strong> Your unique QR code is attached to this email. Please keep this digital copy accessible, as it will be required for attendance verification and access during the event.</p>
+            <p style="margin: 0;"><strong>Important:</strong> Please you are required to show your QR code on any device for scanning as attendance at the entrance.</p>
           </div>
           
           <p>If you encounter any issues viewing the attachment or have questions regarding your registration, please reply to this email.</p>
@@ -99,6 +102,24 @@ def init_db():
                     fullname TEXT NOT NULL,
                     phone TEXT,
                     email TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rcbs (
+                    id SERIAL PRIMARY KEY,
+                    unique_id TEXT UNIQUE NOT NULL,
+                    surname TEXT NOT NULL,
+                    first_name TEXT NOT NULL,
+                    other_name TEXT,
+                    fullname TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    phone TEXT,
+                    department TEXT,
+                    faculty TEXT,
+                    research_focus TEXT,
+                    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
                 )
                 """
             )
@@ -158,6 +179,30 @@ def save_contact(unique_id, fullname, phone, email):
                 )
                 contact = cur.fetchone()
                 return contact["id"] if contact else None
+    finally:
+        conn.close()
+
+
+def save_rcbs(unique_id, surname, first_name, other_name, fullname, phone, email, department, faculty, research_focus):
+    """Save or update form data in rcbs table, return rcbs_id."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO rcbs (unique_id, surname, first_name, other_name, fullname, email, phone, department, faculty, research_focus) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (unique_id) DO UPDATE SET "
+                    "surname = EXCLUDED.surname, first_name = EXCLUDED.first_name, other_name = EXCLUDED.other_name, fullname = EXCLUDED.fullname, "
+                    "email = EXCLUDED.email, phone = EXCLUDED.phone, department = EXCLUDED.department, faculty = EXCLUDED.faculty, research_focus = EXCLUDED.research_focus",
+                    (unique_id, surname, first_name, other_name, fullname, email, phone, department, faculty, research_focus),
+                )
+                cur.execute(
+                    "SELECT id FROM rcbs WHERE unique_id = %s",
+                    (unique_id,),
+                )
+                rcbs = cur.fetchone()
+                return rcbs["id"] if rcbs else None
     finally:
         conn.close()
 
@@ -426,16 +471,24 @@ def create_user_route():
     role = (data.get('role') or 'member').strip().lower()
 
     if role not in {'admin', 'member'}:
-        return jsonify({"error": "role must be 'admin' or 'member'"}), 400
+        if request.is_json:
+            return jsonify({"error": "role must be 'admin' or 'member'"}), 400
+        return redirect(url_for('admin_users', error="Role must be admin or member"))
 
     if not name or not email or not password:
-        return jsonify({"error": "name, email, and password are required"}), 400
+        if request.is_json:
+            return jsonify({"error": "name, email, and password are required"}), 400
+        return redirect(url_for('admin_users', error="Name, email, and password are required"))
 
     try:
         user = create_user(name, email, password, role)
-        return jsonify({"success": True, "user": user}), 201
+        if request.is_json:
+            return jsonify({"success": True, "user": user}), 201
+        return redirect(url_for('admin_users', message=f"Created user {user['email']}"))
     except psycopg2.IntegrityError:
-        return jsonify({"error": "A user with that email already exists"}), 409
+        if request.is_json:
+            return jsonify({"error": "A user with that email already exists"}), 409
+        return redirect(url_for('admin_users', error="A user with that email already exists"))
 
 
 @app.route('/users', methods=['GET'])
@@ -455,6 +508,41 @@ def get_user(user_id):
     if not user:
         return jsonify({"error": "User not found"}), 404
     return jsonify(user), 200
+
+
+@app.route('/admin/users', methods=['GET'])
+def admin_users():
+    admin = ensure_admin_user()
+    if not admin:
+        return redirect(url_for('login'))
+
+    users = fetch_all_users()
+    status_message = request.args.get('message', '')
+    error_message = request.args.get('error', '')
+    return render_template('admin_users.html', user=admin, users=users, status_message=status_message, error_message=error_message)
+
+
+@app.route('/admin/users/<int:user_id>/role', methods=['POST'])
+def update_user_role(user_id):
+    admin = ensure_admin_user()
+    if not admin:
+        return redirect(url_for('login'))
+
+    role = (request.form.get('role') or '').strip().lower()
+    if role not in {'admin', 'member'}:
+        return redirect(url_for('admin_users', error="Invalid role selected"))
+
+    conn = get_db_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET role = %s WHERE id = %s",
+                    (role, user_id),
+                )
+        return redirect(url_for('admin_users', message=f"Updated user role to {role}"))
+    finally:
+        conn.close()
 
 
 def ensure_admin_user():
@@ -633,31 +721,49 @@ def screening():
 @app.route('/generate-qr-email', methods=['POST'])
 def generate_qr_email():
     data = request.get_json()
-    fields = data["data"].get("fields", [])
-    # logging.info("Received data: %s", data)
-    logging.info("Extracted fields: %s", fields)
     if not data:
         return jsonify({"error": "No JSON data provided"}), 400
+
+    fields = data.get("data", {}).get("fields", [])
+    logging.info("Extracted fields: %s", fields)
 
     # Convert fields into a dictionary {label: value}
     field_map = {f.get("label"): f.get("value") for f in fields if f.get("label")}
 
-    # unique_id = data.get('unique_id', '').strip()
-    unique_id = nanoid()
-    # fullname = data.get('fullname', '').strip()
-    # email = data.get('email', '').strip()
-    # phone = data.get('phone', '').strip()
-    fullname = field_map.get('fullname','Test User').strip()
-    print(f"Extracted fullname: '{fullname}'")
-    email = field_map.get('email','test@example.com').strip()
-    phone = field_map.get('phoneNumber','123-456-7890').strip()
+    surname = (field_map.get('surname') or '').strip()
+    first_name = (field_map.get('firstname') or '').strip()
+    other_name = (field_map.get('othername') or '').strip()
+    email = (field_map.get('email') or '').strip()
+    phone = (field_map.get('phone') or '').strip()
+    u_id = nanoid()
+    department = (field_map.get('Department') or '').strip()
+    faculty = (field_map.get('Faculty') or '').strip()
+    research_focus = (field_map.get('researchFocus') or field_map.get('reseachFocus') or '').strip()
+
+    fullname = ' '.join(part for part in [surname, first_name, other_name] if part).strip()
+    if not fullname:
+        fullname = 'Test User'
+
     htmlBody = generate_html_body(fullname)
 
-    if not unique_id or not fullname or not email or not phone:
-        return jsonify({"error": "Missing required fields: unique_id, fullname, email, phone"}), 400
+    if not u_id or not fullname or not email or not phone:
+        return jsonify({"error": "Missing required fields: surname, firstName, email, phone"}), 400
 
-    contact = Contact(unique_id=unique_id, fullname=fullname, email=email, phone=phone)
-    contact_id = save_contact(unique_id, fullname, phone, email)
+    contact = Contact(unique_id=u_id, fullname=fullname, email=email, phone=phone)
+    contact_id = save_contact(u_id, fullname, phone, email)
+    logging.info("Saved contact with ID: %s", contact_id)
+    rcbs_id = save_rcbs(
+        unique_id=u_id,
+        surname=surname,
+        first_name=first_name,
+        other_name=other_name,
+        fullname=fullname,
+        phone=phone,
+        email=email,
+        department=department,
+        faculty=faculty,
+        research_focus=research_focus,
+    )
 
     try:
         # Use temp directory for QR codes
@@ -665,14 +771,14 @@ def generate_qr_email():
             output_dir = Path(temp_dir)
             qr_path = make_qr(contact, output_dir)
 
-            subject = data.get('subject', 'Your Event QR Code')
+            subject = data.get('subject', 'Research Series Registration Confirmation')
             body_template = data.get('body', 'Hello {fullname},\n\nPlease find your QR code attached.\n\nCheers,\nTeam')
             html_body_template = htmlBody
 
             message = build_message(contact, qr_path, FROM_EMAIL, subject, body_template, html_body_template)
             send_email(message, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, use_tls=(SMTP_PORT == 587))
 
-        return jsonify({"success": True, "message": f"QR code sent to {email}"}), 200
+        return jsonify({"success": True, "message": f"QR code sent to {email}", "rcbs_id": rcbs_id}), 200
 
     except Exception as e:
         logging.error("Error processing request: %s", str(e))

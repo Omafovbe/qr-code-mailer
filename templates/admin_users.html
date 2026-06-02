@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin - User Management</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1100px;
+        margin: 20px auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+      }
+      th,
+      td {
+        padding: 8px 12px;
+        border: 1px solid #eee;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f6f8ff;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .nav a {
+        margin-left: 12px;
+        text-decoration: none;
+        color: #007bff;
+      }
+      .toolbar {
+        margin-top: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+      .panel {
+        width: 100%;
+        background: #f9fbff;
+        border: 1px solid #e7eef8;
+        border-radius: 8px;
+        padding: 18px;
+      }
+      .panel h2 {
+        margin-top: 0;
+      }
+      .panel form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        align-items: end;
+      }
+      .panel input,
+      .panel select,
+      .panel button {
+        padding: 10px 12px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      .panel button {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+        cursor: pointer;
+      }
+      .status {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 0.95em;
+      }
+      .status.admin {
+        background: #e6f4ea;
+        color: #205d32;
+      }
+      .status.member {
+        background: #eef4ff;
+        color: #0b3a76;
+      }
+      .message {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        background: #eff7ff;
+        color: #0b3a76;
+        border: 1px solid #d4e6ff;
+      }
+      .error {
+        background: #fdecea;
+        color: #8f1d1b;
+        border-color: #f5c2c0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <h1>User Management</h1>
+      <div class="nav">
+        <span>Signed in as {{ user.email }}</span>
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/tokens">Token Management</a>
+        <a href="/logout">Logout</a>
+        <a href="/">Home</a>
+      </div>
+    </div>
+
+    {% if status_message %}
+    <div class="message">{{ status_message }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="message error">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="toolbar">
+      <div class="panel">
+        <h2>Create a new user</h2>
+        <form method="post" action="/users/create">
+          <label>
+            Name
+            <input type="text" name="name" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required />
+          </label>
+          <label>
+            Role
+            <select name="role">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <button type="submit">Create user</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 24px;">
+      <h2>Existing users</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Joined At</th>
+            <th>Change Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if users %}
+          {% for u in users %}
+          <tr>
+            <td>{{ u.id }}</td>
+            <td>{{ u.name }}</td>
+            <td>{{ u.email }}</td>
+            <td>
+              <span class="status {{ u.role }}">{{ u.role|capitalize }}</span>
+            </td>
+            <td>{{ u.created_at }}</td>
+            <td>
+              <form method="post" action="/admin/users/{{ u.id }}/role" style="display: grid; gap: 8px;">
+                <select name="role">
+                  <option value="member" {% if u.role == 'member' %}selected{% endif %}>Member</option>
+                  <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Admin</option>
+                </select>
+                <button type="submit">Update</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="6" style="text-align:center; color:#666; padding:20px;">
+              No users found.
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

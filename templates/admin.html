@@ -35,9 +35,14 @@
         flex-wrap: wrap;
       }
       .nav a {
-        margin-left: 12px;
+        margin-left: 10px;
+        margin-right: 10px;
         text-decoration: none;
         color: #007bff;
+      }
+
+      .nav a:last-child {
+        margin-right: 0;
       }
       .toolbar {
         margin-top: 20px;
@@ -86,9 +91,10 @@
     <div class="topbar">
       <h1>Scan History</h1>
       <div class="nav">
-        <span>Signed in as {{ user.email }}</span>
-        <a href="/admin/tokens">Token Management</a>
-        <a href="/logout">Logout</a>
+        <span>Signed in as {{ user.email }}</span> |
+        <a href="/admin/users">User Management</a> |
+        <a href="/admin/tokens">Token Management</a> |
+        <a href="/logout">Logout</a> |
         <a href="/">Home</a>
       </div>
     </div>
